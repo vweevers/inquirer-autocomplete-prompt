@@ -9,7 +9,7 @@ var Base = require('inquirer/lib/prompts/base');
 var Choices = require('inquirer/lib/objects/choices');
 var observe = require('inquirer/lib/utils/events');
 var Paginator = require('inquirer/lib/utils/paginator');
-var readline = require('readline');
+var cliCursor = require('cli-cursor');
 
 /**
  * Module exports
@@ -59,6 +59,9 @@ Prompt.prototype._run = function(cb) {
   events.line.take(1).forEach( self.onSubmit.bind(this) );
   events.keypress.takeUntil(events.line).forEach(self.onKeypress.bind(this));
 
+  this.render();
+  cliCursor.hide();
+
   //call once at init
   self.search(null);
 
@@ -71,26 +74,34 @@ Prompt.prototype._run = function(cb) {
  * @return {Prompt} self
  */
 
-Prompt.prototype.render = function() {
+Prompt.prototype.render = function(error) {
   // Render question
   var message = this.getQuestion();
+  var bottomContent = '';
 
-  if (this.firstRender) {
-    message += chalk.dim('(Use arrow keys or type to search)');
-  }
   // Render choices or answer depending on the state
   if (this.status === 'answered') {
     message += chalk.cyan(this.answer);
-  } else if (this.searching) {
-    message += '\n  ' + chalk.dim('Searching...');
-  } else if (this.currentChoices.length) {
-    var choicesStr = listRender(this.currentChoices, this.selected);
-    message += '\n' + this.paginator.paginate(choicesStr, this.selected);
   } else {
-    message += '\n  ' + chalk.yellow('No results...');
+    if (this.firstRender) {
+      message += chalk.dim('(Use arrow keys or type to search)');
+    } else {
+      message += this.rl.line;
+    }
+
+    if (error) {
+      bottomContent = chalk.red('>> ') + error;
+    } else if (this.searching) {
+      bottomContent = chalk.dim('>> Searching...');
+    } else if (this.currentChoices.length) {
+      var choicesStr = listRender(this.currentChoices, this.selected);
+      bottomContent = this.paginator.paginate(choicesStr, this.selected);
+    } else {
+      bottomContent = chalk.yellow('>> No results...');
+    }
   }
-  this.firstRender = false;
-  this.screen.render(this.rl.line||(String.fromCharCode(8)), message);
+
+  this.screen.render(message, bottomContent);
 };
 
 /**
@@ -106,17 +117,15 @@ Prompt.prototype.onSubmit = function(line) {
 
   var choice = this.currentChoices.getChoice(this.selected);
   this.answer = choice.value;
-
   this.status = 'answered';
 
   // Rerender prompt
   this.render();
 
   this.screen.done();
-  this.rl.output.write('\n');
+  cliCursor.show();
 
   this.done(choice.value);
-
 };
 
 Prompt.prototype.search = function(searchTerm) {
@@ -165,20 +174,24 @@ Prompt.prototype.ensureSelectedInRange = function() {
  */
 
 Prompt.prototype.onKeypress = function(e) {
+  this.firstRender = false;
+
   var len;
   var keyName = (e.key && e.key.name) || undefined;
   if (keyName === 'down') {
+    cliCursor.hide();
     len = this.currentChoices.length;
     this.selected = (this.selected < len - 1) ? this.selected + 1 : 0;
     this.ensureSelectedInRange();
     this.render();
-    readline.moveCursor(this.rl.output, -2, 0)
   } else if (keyName === 'up') {
+    cliCursor.hide();
     len = this.currentChoices.length;
     this.selected = (this.selected > 0) ? this.selected - 1 : len - 1;
     this.ensureSelectedInRange();
     this.render();
   } else {
+    cliCursor.show();
     this.render(); //render input automatically
     //Only search if input have actually changed, not because of other keypresses
     if (this.lastSearchTerm !== this.rl.line) {
